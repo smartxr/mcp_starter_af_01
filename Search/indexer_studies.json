@@ -1,0 +1,33 @@
+{
+  "name": "owlsql-studies-indexer",
+  "dataSourceName": "owlsql-studies-datasource",
+  "targetIndexName": "studies",
+  "schedule": null,
+  "parameters": {
+    "batchSize": 500,
+    "maxFailedItems": 10
+  },
+  "fieldMappings": [
+    {
+      "sourceFieldName": "StudyID",
+      "targetFieldName": "id",
+      "mappingFunction": {
+        "name": "base64Encode",
+        "parameters": null
+      }
+    },
+    {
+      "sourceFieldName": "StudyID",
+      "targetFieldName": "studyid"
+    },
+    {
+      "sourceFieldName": "StudyTitle",
+      "targetFieldName": "studytitle"
+    },
+    {
+      "sourceFieldName": "DiseaseAreaName",
+      "targetFieldName": "diseaseareaname"
+    }
+  ],
+  "outputFieldMappings": []
+}

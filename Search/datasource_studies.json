@@ -1,0 +1,25 @@
+{
+  "name": "owlsql-studies-datasource",
+  "description": null,
+  "type": "azuresql",
+  "subtype": null,
+  "indexerPermissionOptions": [],
+  "credentials": {
+    "connectionString": "Data Source=tcp:owl.database.windows.net,1433;Initial Catalog=eugenius;User ID=...;Password=...;Connect Timeout=30;Encrypt=True;Trust Server Certificate=False"
+  },
+  "container": {
+    "name": "vw_StudiesWithDiseaseArea",
+    "query": null
+  },
+  "dataChangeDetectionPolicy": {
+    "@odata.type": "#Microsoft.Azure.Search.HighWaterMarkChangeDetectionPolicy",
+    "highWaterMarkColumnName": "ModifiedOn"
+  },
+  "dataDeletionDetectionPolicy": {
+    "@odata.type": "#Microsoft.Azure.Search.SoftDeleteColumnDeletionDetectionPolicy",
+    "softDeleteColumnName": "IsDeleted",
+    "softDeleteMarkerValue": "1"
+  },
+  "encryptionKey": null,
+  "identity": null
+}

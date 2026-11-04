@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "AZURE_SEARCH_NAME": "eugenius",
+    "AZURE_SEARCH_INDEX_NAME": "authors"
+  }
+}

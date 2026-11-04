@@ -1,0 +1,65 @@
+{
+  "name": "owlsql-authors-indexer",
+  "dataSourceName": "owlsql-authors-datasource",
+  "targetIndexName": "authors",
+  "schedule": null,
+  "parameters": {
+    "batchSize": 500,
+    "maxFailedItems": 10
+  },
+  "fieldMappings": [
+    {
+      "sourceFieldName": "AuthorID",
+      "targetFieldName": "id",
+      "mappingFunction": {
+        "name": "base64Encode",
+        "parameters": null
+      }
+    },
+    {
+      "sourceFieldName": "AuthorID",
+      "targetFieldName": "authorid"
+    },
+    {
+      "sourceFieldName": "FirstName",
+      "targetFieldName": "firstname"
+    },
+    {
+      "sourceFieldName": "LastName",
+      "targetFieldName": "lastname"
+    },
+    {
+      "sourceFieldName": "Title",
+      "targetFieldName": "title"
+    },
+    {
+      "sourceFieldName": "Email",
+      "targetFieldName": "email"
+    },
+    {
+      "sourceFieldName": "Phone",
+      "targetFieldName": "phone"
+    },
+    {
+      "sourceFieldName": "Address",
+      "targetFieldName": "address"
+    },
+    {
+      "sourceFieldName": "CityState",
+      "targetFieldName": "citystate"
+    },
+    {
+      "sourceFieldName": "Country",
+      "targetFieldName": "country"
+    },
+    {
+      "sourceFieldName": "Affiliation",
+      "targetFieldName": "affiliation"
+    },
+    {
+      "sourceFieldName": "AuthorType",
+      "targetFieldName": "authortype"
+    }
+  ],
+  "outputFieldMappings": []
+}
