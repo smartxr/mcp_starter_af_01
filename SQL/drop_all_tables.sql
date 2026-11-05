@@ -14,6 +14,9 @@ BEGIN TRY
     IF OBJECT_ID(N'dbo.vw_ActivePublications', N'V') IS NOT NULL
         DROP VIEW dbo.vw_ActivePublications;
 
+    IF OBJECT_ID(N'dbo.vw_PublicationAuthorDocumentStatus', N'V') IS NOT NULL
+        DROP VIEW dbo.vw_PublicationAuthorDocumentStatus;
+
     IF OBJECT_ID(N'dbo.PublicationAuthors', N'U') IS NOT NULL
         DROP TABLE dbo.PublicationAuthors;
 

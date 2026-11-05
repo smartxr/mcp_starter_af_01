@@ -239,7 +239,7 @@ def _parse_document_date(value):
         raise ValueError("date must use YYYY-MM-DD or be null.") from error
 
 
-def _return_tool_errors(tool_name):
+def _return_tool_errors(tool_name, action="save"):
     def decorate(handler):
         @wraps(handler)
         def wrapped(*args, **kwargs):
@@ -251,12 +251,60 @@ def _return_tool_errors(tool_name):
                 return f"Unable to process {tool_name} request: {error}"
             except Exception:
                 logging.exception("Failed to process %s request.", tool_name)
-                return (
-                    f"Unable to save {tool_name}: the database or schema rejected the request. "
-                    "No records were saved; check the database schema and connection."
-                )
+                no_records_saved = "No records were saved; " if action == "save" else ""
+                return f"Unable to {action} {tool_name}: {no_records_saved}check the database schema and connection."
         return wrapped
     return decorate
+
+
+def _query_sql_json(query, *parameters):
+    connection_string = os.getenv("AZURE_SQL_CONNECTION_STRING")
+    if not connection_string:
+        raise RuntimeError("Set AZURE_SQL_CONNECTION_STRING in local.settings.json or Azure Function App settings.")
+
+    connection = None
+    cursor = None
+    try:
+        connection = pyodbc.connect(connection_string, autocommit=True)
+        cursor = connection.cursor()
+        cursor.execute(query, *parameters)
+        column_names = [column[0] for column in cursor.description]
+        rows = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+        return json.dumps(rows, default=str)
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()
+
+
+@app.mcp_tool()
+@_return_tool_errors("active publications", action="retrieve")
+def get_active_publications() -> str:
+    """List active publications from dbo.vw_ActivePublications."""
+    return _query_sql_json(
+        """
+        SELECT *
+        FROM dbo.vw_ActivePublications
+        ORDER BY ModifiedOn DESC
+        """
+    )
+
+
+@app.mcp_tool()
+@_return_tool_errors("publication authors", action="retrieve")
+def get_publication_authors(publication_id: int) -> str:
+    """List a publication's authors with their agreement and COI status."""
+    parsed_publication_id = _parse_sql_id(publication_id, "publication_id")
+    return _query_sql_json(
+        """
+        SELECT *
+        FROM dbo.vw_PublicationAuthorDocumentStatus
+        WHERE PublicationID = ?
+        ORDER BY AuthorOrder
+        """,
+        parsed_publication_id,
+    )
 
 
 @app.mcp_tool()

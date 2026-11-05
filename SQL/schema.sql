@@ -311,6 +311,48 @@ BEGIN TRY
             [pb].[IsDeleted]
         ;';
 
+    EXEC sys.sp_executesql N'
+        CREATE VIEW dbo.vw_PublicationAuthorDocumentStatus
+        AS
+        SELECT
+            p.PublicationID,
+            p.PublicationTitle,
+            a.AuthorID,
+            a.FirstName,
+            a.LastName,
+            pa.AuthorOrder,
+            aa_latest.AgreementDate,
+            CASE
+                WHEN aa_latest.AgreementDate IS NULL THEN NULL
+                ELSE DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, aa_latest.AgreementDate))
+            END AS AuthorAgreementDaysRemaining,
+            coi_latest.COIDate,
+            CASE
+                WHEN coi_latest.COIDate IS NULL THEN NULL
+                ELSE DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, coi_latest.COIDate))
+            END AS COIDaysRemaining
+        FROM dbo.Publications AS p
+        JOIN dbo.PublicationAuthors AS pa
+            ON pa.PublicationID = p.PublicationID
+        JOIN dbo.Authors AS a
+            ON a.AuthorID = pa.AuthorID
+        OUTER APPLY
+        (
+            SELECT TOP (1)
+                aa.DocumentDate AS AgreementDate
+            FROM dbo.AuthorAgreements AS aa
+            WHERE aa.AuthorID = a.AuthorID
+            ORDER BY aa.DocumentDate DESC
+        ) AS aa_latest
+        OUTER APPLY
+        (
+            SELECT TOP (1)
+                c.DocumentDate AS COIDate
+            FROM dbo.COIs AS c
+            WHERE c.AuthorID = a.AuthorID
+            ORDER BY c.DocumentDate DESC
+        ) AS coi_latest;';
+
     COMMIT TRANSACTION;
 END TRY
 BEGIN CATCH
