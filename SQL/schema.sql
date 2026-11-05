@@ -7,8 +7,8 @@ Model decisions:
 - AuthorType is nullable; non-null values are restricted to Internal / External.
 - PublicationLeadID references Authors; the Entra ID is stored separately.
 - DiseaseAreas may reference a ProjectManager through PMID.
-- AuthorAgreements are unique per Study/Author.
-- COIs are unique per DiseaseArea/Author.
+- AuthorAgreements retain the source file name and extracted names when IDs are unmatched.
+- COIs retain manuscript metadata and support multiple disclosure rows per record.
 - PublicationAuthors links authors to publications; author order is unique per publication.
 - Publications combines publication details with its ACF file and metadata.
 - MetadataExtractionStatus defaults to Pending.
@@ -27,6 +27,7 @@ BEGIN TRY
         OR OBJECT_ID(N'dbo.PublicationAuthors', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.AuthorAgreements', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.COIs', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.COIDisclosures', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.DiseaseArea', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.ProjectManager', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.Study', N'U') IS NOT NULL
@@ -114,7 +115,6 @@ BEGIN TRY
         FileName NVARCHAR(260) NOT NULL,
         FileURL NVARCHAR(2000) NULL,
         UploadedAt DATETIME2(7) NOT NULL CONSTRAINT DF_Publications_UploadedAt DEFAULT (SYSUTCDATETIME()),
-        MetadataExtractionStatus NVARCHAR(30) NOT NULL CONSTRAINT DF_Publications_MetadataExtractionStatus DEFAULT (N'Pending'),
         DocumentID NVARCHAR(260) NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_Publications_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_Publications_ModifiedOn DEFAULT (SYSUTCDATETIME()),
@@ -152,39 +152,62 @@ BEGIN TRY
     CREATE TABLE dbo.AuthorAgreements
     (
         AAID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_AuthorAgreements PRIMARY KEY,
-        StudyID INT NOT NULL,
-        AuthorID INT NOT NULL,
+        StudyID INT NULL,
+        StudyExtractedName NVARCHAR(500) NULL,
+        AuthorID INT NULL,
+        AuthorExtractedFirstName NVARCHAR(100) NULL,
+        AuthorExtractedLastName NVARCHAR(100) NULL,
         Status NVARCHAR(30) NOT NULL CONSTRAINT DF_AuthorAgreements_Status DEFAULT (N'Not Started'),
         PublicationLeadID INT NULL,
         PublicationLeadEntraID UNIQUEIDENTIFIER NULL,
         PublicationLeadName NVARCHAR(100) NULL,
-        ExpiryDate DATE NULL,
+        DocumentDate DATE NULL,
+        FileName NVARCHAR(260) NULL,
         DocumentURL NVARCHAR(2000) NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_AuthorAgreements_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_AuthorAgreements_ModifiedOn DEFAULT (SYSUTCDATETIME()),
         IsDeleted BIT NOT NULL CONSTRAINT DF_AuthorAgreements_IsDeleted DEFAULT (0),
-        CONSTRAINT UQ_AuthorAgreements_Study_Author UNIQUE (StudyID, AuthorID),
         CONSTRAINT FK_AuthorAgreements_Studies FOREIGN KEY (StudyID) REFERENCES dbo.Studies (StudyID),
         CONSTRAINT FK_AuthorAgreements_Authors FOREIGN KEY (AuthorID) REFERENCES dbo.Authors (AuthorID),
         CONSTRAINT FK_AuthorAgreements_PublicationLead FOREIGN KEY (PublicationLeadID) REFERENCES dbo.Authors (AuthorID)
     );
+    CREATE UNIQUE INDEX UX_AuthorAgreements_Study_Author
+        ON dbo.AuthorAgreements (StudyID, AuthorID)
+        WHERE StudyID IS NOT NULL AND AuthorID IS NOT NULL;
     CREATE INDEX IX_AuthorAgreements_PublicationLead ON dbo.AuthorAgreements (PublicationLeadID);
 
     CREATE TABLE dbo.COIs
     (
         COIID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_COIs PRIMARY KEY,
-        DiseaseAreaID INT NOT NULL,
-        AuthorID INT NOT NULL,
-        Status NVARCHAR(30) NOT NULL CONSTRAINT DF_COIs_Status DEFAULT (N'Not Started'),
-        ExpiryDate DATE NULL,
+        DiseaseAreaID INT NULL,
+        AuthorID INT NULL,
+        AuthorExtractedFirstName NVARCHAR(100) NULL,
+        AuthorExtractedLastName NVARCHAR(100) NULL,
+        ManuscriptTitle NVARCHAR(500) NOT NULL,
+        ManuscriptNumber NVARCHAR(100) NULL,
+        FileName NVARCHAR(260) NOT NULL,
+        Status NVARCHAR(30) NOT NULL CONSTRAINT DF_COIs_Status DEFAULT (N'Draft'),
+        DocumentDate DATE NULL,
         DocumentURL NVARCHAR(2000) NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIs_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIs_ModifiedOn DEFAULT (SYSUTCDATETIME()),
         IsDeleted BIT NOT NULL CONSTRAINT DF_COIs_IsDeleted DEFAULT (0),
-        CONSTRAINT UQ_COIs_DiseaseArea_Author UNIQUE (DiseaseAreaID, AuthorID),
         CONSTRAINT FK_COIs_DiseaseAreas FOREIGN KEY (DiseaseAreaID) REFERENCES dbo.DiseaseAreas (DiseaseAreaID),
         CONSTRAINT FK_COIs_Authors FOREIGN KEY (AuthorID) REFERENCES dbo.Authors (AuthorID)
     );
+
+    CREATE TABLE dbo.COIDisclosures
+    (
+        COIDisclosureID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_COIDisclosures PRIMARY KEY,
+        COIID INT NOT NULL,
+        EntityData NVARCHAR(MAX) NOT NULL,
+        RelationshipData NVARCHAR(MAX) NOT NULL,
+        CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosures_CreatedOn DEFAULT (SYSUTCDATETIME()),
+        ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosures_ModifiedOn DEFAULT (SYSUTCDATETIME()),
+        IsDeleted BIT NOT NULL CONSTRAINT DF_COIDisclosures_IsDeleted DEFAULT (0),
+        CONSTRAINT FK_COIDisclosures_COIs FOREIGN KEY (COIID) REFERENCES dbo.COIs (COIID)
+    );
+    CREATE INDEX IX_COIDisclosures_COIID ON dbo.COIDisclosures (COIID);
 
     DECLARE @TimestampTables TABLE
     (
@@ -200,7 +223,8 @@ BEGIN TRY
         (N'Publications', N'PublicationID', NULL),
         (N'PublicationAuthors', N'PublicationID', N'AuthorID'),
         (N'AuthorAgreements', N'AAID', NULL),
-        (N'COIs', N'COIID', NULL);
+        (N'COIs', N'COIID', NULL),
+        (N'COIDisclosures', N'COIDisclosureID', NULL);
 
     DECLARE @TableName SYSNAME;
     DECLARE @PrimaryKeyName SYSNAME;
@@ -249,6 +273,43 @@ BEGIN TRY
         FROM [dbo].[Studies] [st]
         LEFT JOIN [dbo].[DiseaseAreas] [da]
             ON [st].[DiseaseAreaID] = [da].[DiseaseAreaID];';
+
+    EXEC sys.sp_executesql N'
+        CREATE VIEW dbo.vw_ActivePublications
+        AS
+        SELECT
+            [pb].[PublicationID],
+            [pb].[PublicationTitle],
+            [st].[StudyTitle],
+            [da].[DiseaseAreaName],
+            [pb].[Status],
+            COUNT([pa].[AuthorID]) AS AuthorCount,
+            [pb].[FileName],
+            [pb].[DocumentID],
+            [pb].[CreatedOn],
+            [pb].[ModifiedOn],
+            [pb].[IsDeleted]
+        FROM [dbo].[Publications] AS [pb]
+        LEFT JOIN [dbo].[Studies] AS [st]
+            ON [pb].[StudyID] = [st].[StudyID]
+        LEFT JOIN [dbo].[DiseaseAreas] AS [da]
+            ON [st].[DiseaseAreaID] = [da].[DiseaseAreaID]
+        LEFT JOIN [dbo].[PublicationAuthors] AS [pa]
+            ON [pa].[PublicationID] = [pb].[PublicationID]
+        WHERE [pb].[IsDeleted] = 0
+        AND [pb].[Status] IN (N''Draft'', N''Pending PM Review'', N''Active'')
+        GROUP BY
+            [pb].[PublicationID],
+            [pb].[PublicationTitle],
+            [st].[StudyTitle],
+            [da].[DiseaseAreaName],
+            [pb].[Status],
+            [pb].[FileName],
+            [pb].[DocumentID],
+            [pb].[CreatedOn],
+            [pb].[ModifiedOn],
+            [pb].[IsDeleted]
+        ;';
 
     COMMIT TRANSACTION;
 END TRY

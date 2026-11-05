@@ -2,7 +2,8 @@
 Azure SQL Database import from Data base.xlsx. Run schema.sql first.
 All workbook values are embedded below; no Excel driver or external storage is needed.
 Expected source rows: 10 disease areas, 3 project managers, 2225 authors.
-The other five model tables have no source sheets and are intentionally not populated.
+Studies includes one manually specified row; the other four model tables have no
+source sheets and are intentionally not populated.
 
 Mapping:
 - Disease Area: nonblank A3 onwards -> DiseaseAreaName.
@@ -2320,7 +2321,7 @@ BEGIN TRY
     )
         THROW 50004, 'Duplicate author natural keys in source; review before importing.', 1;
 
-    DECLARE @DiseaseAreasInserted INT, @ProjectManagersInserted INT, @AuthorsInserted INT;
+    DECLARE @DiseaseAreasInserted INT, @StudiesInserted INT, @ProjectManagersInserted INT, @AuthorsInserted INT;
 
     INSERT INTO dbo.DiseaseAreas (DiseaseAreaName)
     SELECT source.DiseaseAreaName
@@ -2331,6 +2332,16 @@ BEGIN TRY
         WHERE target.DiseaseAreaName = source.DiseaseAreaName
     );
     SET @DiseaseAreasInserted = @@ROWCOUNT;
+
+    INSERT INTO dbo.Studies (StudyTitle, DiseaseAreaID)
+    SELECT N'SCD-006', 4
+    WHERE NOT EXISTS
+    (
+            SELECT 1 FROM dbo.Studies AS target WITH (UPDLOCK, HOLDLOCK)
+            WHERE target.StudyTitle = N'SCD-006'
+                AND target.DiseaseAreaID = 4
+    );
+    SET @StudiesInserted = @@ROWCOUNT;
 
     INSERT INTO dbo.ProjectManagers (FirstName, LastName, Email)
     SELECT source.FirstName, source.LastName, source.Email
@@ -2366,6 +2377,7 @@ BEGIN TRY
     COMMIT TRANSACTION;
 
     SELECT N'DiseaseAreas' AS TableName, 10 AS SourceRows, @DiseaseAreasInserted AS InsertedRows
+    UNION ALL SELECT N'Studies', 1, @StudiesInserted
     UNION ALL SELECT N'ProjectManagers', 3, @ProjectManagersInserted
     UNION ALL SELECT N'Authors', 2225, @AuthorsInserted;
 END TRY

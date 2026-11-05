@@ -11,11 +11,17 @@ BEGIN TRY
     IF OBJECT_ID(N'dbo.vw_StudiesWithDiseaseArea', N'V') IS NOT NULL
         DROP VIEW dbo.vw_StudiesWithDiseaseArea;
 
+    IF OBJECT_ID(N'dbo.vw_ActivePublications', N'V') IS NOT NULL
+        DROP VIEW dbo.vw_ActivePublications;
+
     IF OBJECT_ID(N'dbo.PublicationAuthors', N'U') IS NOT NULL
         DROP TABLE dbo.PublicationAuthors;
 
     IF OBJECT_ID(N'dbo.AuthorAgreements', N'U') IS NOT NULL
         DROP TABLE dbo.AuthorAgreements;
+
+    IF OBJECT_ID(N'dbo.COIDisclosures', N'U') IS NOT NULL
+        DROP TABLE dbo.COIDisclosures;
 
     IF OBJECT_ID(N'dbo.COIs', N'U') IS NOT NULL
         DROP TABLE dbo.COIs;

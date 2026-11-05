@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 import azure.functions as func
@@ -197,6 +198,176 @@ def _optional_text(value, field_name, max_length):
     return value
 
 
+def _required_text(value, field_name, max_length=None):
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string.")
+    if max_length is not None and len(value) > max_length:
+        raise ValueError(f"{field_name} must be {max_length} characters or fewer.")
+    return value
+
+
+def _parse_json_object(value, field_name):
+    try:
+        parsed_value = json.loads(value)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise ValueError(f"{field_name} must be a valid JSON string.") from error
+    if not isinstance(parsed_value, dict):
+        raise ValueError(f"{field_name} must contain a JSON object.")
+    return parsed_value
+
+
+def _parse_document_author(document):
+    author = document.get("author")
+    if not isinstance(author, dict):
+        raise ValueError("author must be an object.")
+    return {
+        "author_id": _parse_sql_id(author.get("authorid"), "author.authorid", nullable=True),
+        "firstname": _required_text(author.get("firstname"), "author.firstname", 100),
+        "lastname": _required_text(author.get("lastname"), "author.lastname", 100),
+    }
+
+
+def _parse_document_date(value):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError("date must use YYYY-MM-DD or be null.")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("date must use YYYY-MM-DD or be null.") from error
+
+
+@app.mcp_tool()
+def save_author_agreement(author_agreement_object: str) -> str:
+    """Save an author agreement in JSON format."""
+    agreement = _parse_json_object(author_agreement_object, "author_agreement_object")
+    study = agreement.get("study")
+    if not isinstance(study, dict):
+        raise ValueError("study must be an object.")
+    study_id = _parse_sql_id(study.get("id"), "study.id", nullable=True)
+    study_name = _required_text(study.get("name"), "study.name", 500)
+    author = _parse_document_author(agreement)
+    file_name = _required_text(agreement.get("filename"), "filename", 260)
+    document_date = _parse_document_date(agreement.get("date"))
+
+    connection_string = os.getenv("AZURE_SQL_CONNECTION_STRING")
+    if not connection_string:
+        raise RuntimeError("Set AZURE_SQL_CONNECTION_STRING in local.settings.json or Azure Function App settings.")
+
+    connection = None
+    cursor = None
+    try:
+        connection = pyodbc.connect(connection_string, autocommit=False)
+        cursor = connection.cursor()
+        agreement_id = cursor.execute(
+            """
+            INSERT INTO dbo.AuthorAgreements
+                (StudyID, StudyExtractedName, AuthorID, AuthorExtractedFirstName,
+                 AuthorExtractedLastName, DocumentDate, FileName, Status)
+            OUTPUT INSERTED.AAID
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            study_id,
+            study_name,
+            author["author_id"],
+            author["firstname"],
+            author["lastname"],
+            document_date,
+            file_name,
+            "Pending PM Review"
+        ).fetchone()[0]
+        connection.commit()
+        logging.info("Saved author agreement %s.", agreement_id)
+        return f"Successfully saved author agreement ID: {agreement_id}."
+    except Exception:
+        if connection is not None:
+            connection.rollback()
+        logging.exception("Failed to save author agreement; database transaction rolled back.")
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()
+
+
+@app.mcp_tool()
+def save_coi(coi_object: str) -> str:
+    """Save a COI and its entity/relationship disclosures from the agent instruction JSON format."""
+    coi = _parse_json_object(coi_object, "coi_object")
+    manuscript_title = _required_text(coi.get("manuscript_title"), "manuscript_title", 500)
+    manuscript_number = _optional_text(coi.get("manuscript_number"), "manuscript_number", 100)
+    file_name = _required_text(coi.get("filename"), "filename", 260)
+    author = _parse_document_author(coi)
+
+    disclosures = coi.get("disclosures")
+    if not isinstance(disclosures, list):
+        raise ValueError("disclosures must be a list.")
+    validated_disclosures = []
+    for index, disclosure in enumerate(disclosures):
+        if not isinstance(disclosure, dict):
+            raise ValueError(f"disclosures[{index}] must be an object.")
+        validated_disclosures.append({
+            "entity": _required_text(disclosure.get("entity"), f"disclosures[{index}].entity"),
+            "relationship": _required_text(
+                disclosure.get("relationship"), f"disclosures[{index}].relationship"
+            ),
+        })
+
+    connection_string = os.getenv("AZURE_SQL_CONNECTION_STRING")
+    if not connection_string:
+        raise RuntimeError("Set AZURE_SQL_CONNECTION_STRING in local.settings.json or Azure Function App settings.")
+
+    connection = None
+    cursor = None
+    try:
+        connection = pyodbc.connect(connection_string, autocommit=False)
+        cursor = connection.cursor()
+        coi_id = cursor.execute(
+            """
+            INSERT INTO dbo.COIs
+                (DiseaseAreaID, AuthorID, AuthorExtractedFirstName, AuthorExtractedLastName,
+                 ManuscriptTitle, ManuscriptNumber, FileName, Status)
+            OUTPUT INSERTED.COIID
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            None,
+            author["author_id"],
+            author["firstname"],
+            author["lastname"],
+            manuscript_title,
+            manuscript_number,
+            file_name,
+            "Pending PM Review"
+        ).fetchone()[0]
+
+        for disclosure in validated_disclosures:
+            cursor.execute(
+                """
+                INSERT INTO dbo.COIDisclosures (COIID, EntityData, RelationshipData)
+                VALUES (?, ?, ?)
+                """,
+                coi_id,
+                disclosure["entity"],
+                disclosure["relationship"],
+            )
+
+        connection.commit()
+        logging.info("Saved COI %s with %d disclosure(s).", coi_id, len(validated_disclosures))
+        return f"Successfully saved COI ID: {coi_id} with {len(validated_disclosures)} disclosure(s)."
+    except Exception:
+        if connection is not None:
+            connection.rollback()
+        logging.exception("Failed to save COI; database transaction rolled back.")
+        raise
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()
+
+
 @app.mcp_tool()
 def save_publication(publication_object: str) -> str:
     """Save a publication, its new authors, and ordered author links in Azure SQL."""
@@ -271,7 +442,7 @@ def save_publication(publication_object: str) -> str:
 
         publication_id = cursor.execute(
             """
-            INSERT INTO dbo.Publications (StudyID, PublicationTitle, FileName, MetadataExtractionStatus)
+            INSERT INTO dbo.Publications (StudyID, PublicationTitle, FileName, Status)
             OUTPUT INSERTED.PublicationID
             VALUES (?, ?, ?, ?)
             """,
@@ -314,7 +485,7 @@ def save_publication(publication_object: str) -> str:
             publication_id,
             len(validated_authors),
         )
-        return f"Successfully saved publication {publication_id} with {len(validated_authors)} author(s)."
+        return f"Successfully saved publication ID: {publication_id} with {len(validated_authors)} author(s)."
     except Exception:
         if connection is not None:
             connection.rollback()
