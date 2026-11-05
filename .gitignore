@@ -3,3 +3,4 @@ __*
 .venv/
 .vscode/
 AzuriteConfig
+credentials.txt
