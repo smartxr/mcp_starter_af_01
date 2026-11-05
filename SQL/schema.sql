@@ -317,20 +317,42 @@ BEGIN TRY
         SELECT
             p.PublicationID,
             p.PublicationTitle,
+            pa.AuthorOrder,
             a.AuthorID,
             a.FirstName,
             a.LastName,
-            pa.AuthorOrder,
+
             aa_latest.AgreementDate,
+            aa_latest.AgreementStatus,
             CASE
-                WHEN aa_latest.AgreementDate IS NULL THEN NULL
-                ELSE DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, aa_latest.AgreementDate))
-            END AS AuthorAgreementDaysRemaining,
+                WHEN aa_latest.AgreementDate IS NULL THEN N''None''
+                WHEN aa_latest.AgreementStatus = N''Active'' THEN
+                    CASE
+                        WHEN DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, aa_latest.AgreementDate)) <= 0
+                            THEN N''Expired''
+                        ELSE CAST(
+                            DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, aa_latest.AgreementDate))
+                            AS varchar(12)
+                        )
+                    END
+                ELSE aa_latest.AgreementStatus
+            END AS AuthorAgreementStatusView,
+
             coi_latest.COIDate,
+            coi_latest.COIStatus,
             CASE
-                WHEN coi_latest.COIDate IS NULL THEN NULL
-                ELSE DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, coi_latest.COIDate))
-            END AS COIDaysRemaining
+                WHEN coi_latest.COIDate IS NULL THEN N''None''
+                WHEN coi_latest.COIStatus = N''Active'' THEN
+                    CASE
+                        WHEN DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, coi_latest.COIDate)) <= 0
+                            THEN N''Expired''
+                        ELSE CAST(
+                            DATEDIFF(DAY, CAST(GETDATE() AS date), DATEADD(YEAR, 1, coi_latest.COIDate))
+                            AS varchar(12)
+                        )
+                    END
+                ELSE coi_latest.COIStatus
+            END AS COIStatusView
         FROM dbo.Publications AS p
         JOIN dbo.PublicationAuthors AS pa
             ON pa.PublicationID = p.PublicationID
@@ -339,7 +361,8 @@ BEGIN TRY
         OUTER APPLY
         (
             SELECT TOP (1)
-                aa.DocumentDate AS AgreementDate
+                aa.DocumentDate AS AgreementDate,
+                aa.Status       AS AgreementStatus
             FROM dbo.AuthorAgreements AS aa
             WHERE aa.AuthorID = a.AuthorID
             ORDER BY aa.DocumentDate DESC
@@ -347,7 +370,8 @@ BEGIN TRY
         OUTER APPLY
         (
             SELECT TOP (1)
-                c.DocumentDate AS COIDate
+                c.DocumentDate AS COIDate,
+                c.Status       AS COIStatus
             FROM dbo.COIs AS c
             WHERE c.AuthorID = a.AuthorID
             ORDER BY c.DocumentDate DESC
