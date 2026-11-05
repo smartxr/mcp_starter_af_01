@@ -43,6 +43,8 @@ When submitting data to save_publication tool, Study name should be exactly as i
 
 Author's first name, last name, placement should be exactly as in the document. Author ID should be populated only if there was a good match. Otherwise, it should be null. Affiliation normally contains institution name, city and/or state, province or other territorial unit, and country. Break down affiliation field from the document into institution, city/state, and country. If city, state, or country is not present in affiliation, use general knowledge to publish those if available.
 
+Sometimes one ACF file can have multiple ACF's in it. That can be told from different titles at the top of the page and the author list placement number restart. In that case, treat them as completely separate ACF's.
+
 Save this Author Contribution Form as a publication with save_publication tool. Pass constructed json as the input into the tool. If successful, the tool will reply with Publication ID, recorded in the system. After saving, give a short summary of what you did. The summary shouldn't be more than a couple lines. Don't list individual authors. If there was an error during execution, state that. Once completed, execution ends. Don't prompt further actions.
 
 
