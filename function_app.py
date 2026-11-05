@@ -1,4 +1,5 @@
 import json
+from functools import wraps
 import logging
 import os
 import re
@@ -238,7 +239,28 @@ def _parse_document_date(value):
         raise ValueError("date must use YYYY-MM-DD or be null.") from error
 
 
+def _return_tool_errors(tool_name):
+    def decorate(handler):
+        @wraps(handler)
+        def wrapped(*args, **kwargs):
+            try:
+                return handler(*args, **kwargs)
+            except (TypeError, ValueError) as error:
+                return f"Invalid {tool_name} request: {error}"
+            except RuntimeError as error:
+                return f"Unable to process {tool_name} request: {error}"
+            except Exception:
+                logging.exception("Failed to process %s request.", tool_name)
+                return (
+                    f"Unable to save {tool_name}: the database or schema rejected the request. "
+                    "No records were saved; check the database schema and connection."
+                )
+        return wrapped
+    return decorate
+
+
 @app.mcp_tool()
+@_return_tool_errors("author agreement")
 def save_author_agreement(author_agreement_object: str) -> str:
     """Save an author agreement in JSON format."""
     agreement = _parse_json_object(author_agreement_object, "author_agreement_object")
@@ -283,7 +305,6 @@ def save_author_agreement(author_agreement_object: str) -> str:
     except Exception:
         if connection is not None:
             connection.rollback()
-        logging.exception("Failed to save author agreement; database transaction rolled back.")
         raise
     finally:
         if cursor is not None:
@@ -293,6 +314,7 @@ def save_author_agreement(author_agreement_object: str) -> str:
 
 
 @app.mcp_tool()
+@_return_tool_errors("COI")
 def save_coi(coi_object: str) -> str:
     """Save a COI and its entity/relationship disclosures from the agent instruction JSON format."""
     coi = _parse_json_object(coi_object, "coi_object")
@@ -359,7 +381,6 @@ def save_coi(coi_object: str) -> str:
     except Exception:
         if connection is not None:
             connection.rollback()
-        logging.exception("Failed to save COI; database transaction rolled back.")
         raise
     finally:
         if cursor is not None:
@@ -369,6 +390,7 @@ def save_coi(coi_object: str) -> str:
 
 
 @app.mcp_tool()
+@_return_tool_errors("publication")
 def save_publication(publication_object: str) -> str:
     """Save a publication, its new authors, and ordered author links in Azure SQL."""
     try:
@@ -489,7 +511,6 @@ def save_publication(publication_object: str) -> str:
     except Exception:
         if connection is not None:
             connection.rollback()
-        logging.exception("Failed to save publication; database transaction rolled back.")
         raise
     finally:
         if cursor is not None:
