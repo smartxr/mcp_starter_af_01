@@ -27,7 +27,20 @@
       "synonymMaps": []
     },
     {
-      "name": "studytitle",
+      "name": "studyname",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": true,
+      "facetable": false,
+      "key": false,
+      "analyzer": "standard.lucene",
+      "synonymMaps": []
+    },
+    {
+      "name": "aawording",
       "type": "Edm.String",
       "searchable": true,
       "filterable": true,

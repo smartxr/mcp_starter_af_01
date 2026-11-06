@@ -2,8 +2,9 @@
 Azure SQL Database import from Data base.xlsx. Run schema.sql first.
 All workbook values are embedded below; no Excel driver or external storage is needed.
 Expected source rows: 10 disease areas, 3 project managers, 2225 authors.
-Studies includes one manually specified row; the other four model tables have no
-source sheets and are intentionally not populated.
+Studies includes the manually specified SCD-006 row and rows transcribed from the
+provided study list; the other four model tables have no source sheets and are
+intentionally not populated.
 
 Mapping:
 - Disease Area: nonblank A3 onwards -> DiseaseAreaName.
@@ -38,6 +39,12 @@ BEGIN TRY
         LastName NVARCHAR(100) NOT NULL,
         Email NVARCHAR(320) NOT NULL PRIMARY KEY
     );
+    CREATE TABLE #StudiesSource
+    (
+        SourceRow INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        StudyName NVARCHAR(500) NOT NULL,
+        DiseaseAreaID INT NOT NULL
+    );
     CREATE TABLE #AuthorsSource
     (
         SourceRow INT NOT NULL PRIMARY KEY,
@@ -64,6 +71,20 @@ BEGIN TRY
         (N'Amy', N'Godfrey', N'amy_godfrey@vrtx.com'),
         (N'Amanda', N'LaVoie', N'Amanda_Lavoie@vrtx.com'),
         (N'Krystle', N'Madewell', N'krystle_madewell@vrtx.com');
+
+    INSERT INTO #StudiesSource (StudyName, DiseaseAreaID) VALUES
+        (N'SCD-006', 4),
+        (N'NDK-006/NDK-004', 3),
+        (N'CFQ-R 8D_VNZ trials', 4),
+        (N'SUZ TQT_VX21-548-009', 7),
+        (N'Ruby-3', 8),
+        (N'RWE T1D-008', 10),
+        (N'445-122', 4),
+        (N'CF SwCl ECFS', 4),
+        (N'SUZ acute pain', 7),
+        (N'445-110', 4),
+        (N'DM1 publications', 5),
+        (N'880-101', 10);
 
     INSERT INTO #AuthorsSource (SourceRow, FirstName, LastName, Email, AuthorType) VALUES
         (2, N'Antti', N'Aalto', N'Antti.Aalto@oriola.com', N'External'),
@@ -2321,7 +2342,8 @@ BEGIN TRY
     )
         THROW 50004, 'Duplicate author natural keys in source; review before importing.', 1;
 
-    DECLARE @DiseaseAreasInserted INT, @StudiesInserted INT, @ProjectManagersInserted INT, @AuthorsInserted INT;
+        DECLARE @DiseaseAreasInserted INT, @StudiesSourceRows INT, @StudiesInserted INT,
+            @ProjectManagersInserted INT, @AuthorsInserted INT;
 
     INSERT INTO dbo.DiseaseAreas (DiseaseAreaName)
     SELECT source.DiseaseAreaName
@@ -2333,13 +2355,14 @@ BEGIN TRY
     );
     SET @DiseaseAreasInserted = @@ROWCOUNT;
 
-    INSERT INTO dbo.Studies (StudyTitle, DiseaseAreaID)
-    SELECT N'SCD-006', 4
+    INSERT INTO dbo.Studies (StudyName, DiseaseAreaID)
+    SELECT source.StudyName, source.DiseaseAreaID
+    FROM #StudiesSource AS source
     WHERE NOT EXISTS
     (
-            SELECT 1 FROM dbo.Studies AS target WITH (UPDLOCK, HOLDLOCK)
-            WHERE target.StudyTitle = N'SCD-006'
-                AND target.DiseaseAreaID = 4
+        SELECT 1 FROM dbo.Studies AS target WITH (UPDLOCK, HOLDLOCK)
+        WHERE target.StudyName = source.StudyName
+          AND target.DiseaseAreaID = source.DiseaseAreaID
     );
     SET @StudiesInserted = @@ROWCOUNT;
 
@@ -2371,19 +2394,21 @@ BEGIN TRY
     WHERE Validated <> 1;
 
     DROP TABLE #AuthorsSource;
+    DROP TABLE #StudiesSource;
     DROP TABLE #ProjectManagersSource;
     DROP TABLE #DiseaseAreasSource;
 
     COMMIT TRANSACTION;
 
     SELECT N'DiseaseAreas' AS TableName, 10 AS SourceRows, @DiseaseAreasInserted AS InsertedRows
-    UNION ALL SELECT N'Studies', 1, @StudiesInserted
+    UNION ALL SELECT N'Studies', 12, @StudiesInserted
     UNION ALL SELECT N'ProjectManagers', 3, @ProjectManagersInserted
     UNION ALL SELECT N'Authors', 2225, @AuthorsInserted;
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     DROP TABLE IF EXISTS #AuthorsSource;
+    DROP TABLE IF EXISTS #StudiesSource;
     DROP TABLE IF EXISTS #ProjectManagersSource;
     DROP TABLE IF EXISTS #DiseaseAreasSource;
     THROW;

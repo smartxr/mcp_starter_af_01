@@ -21,8 +21,12 @@
       "targetFieldName": "studyid"
     },
     {
-      "sourceFieldName": "StudyTitle",
-      "targetFieldName": "studytitle"
+      "sourceFieldName": "StudyName",
+      "targetFieldName": "studyname"
+    },
+    {
+      "sourceFieldName": "AAWording",
+      "targetFieldName": "aawording"
     },
     {
       "sourceFieldName": "DiseaseAreaName",

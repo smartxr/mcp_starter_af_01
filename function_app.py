@@ -164,8 +164,8 @@ def get_study(study_name: str) -> str:
                 search_text=search_text,
                 query_type="full",
                 search_mode="any",
-                search_fields=["studytitle"],
-                select=["studyid","studytitle","diseaseareaname"],
+                search_fields=["studyname","aawording"],
+                select=["studyid","studyname","aawording","diseaseareaname"],
                 top=10)
             studies = list(results)
             logging.info("get_study returned %d result(s).", len(studies))

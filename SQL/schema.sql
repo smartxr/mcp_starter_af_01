@@ -47,6 +47,7 @@ BEGIN TRY
         FirstName NVARCHAR(100) NOT NULL,
         LastName NVARCHAR(100) NOT NULL,
         Email NVARCHAR(320) NOT NULL,
+        DocusignUserID NVARCHAR(50) NULL,
         EntraObjectID UNIQUEIDENTIFIER NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_ProjectManagers_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_ProjectManagers_ModifiedOn DEFAULT (SYSUTCDATETIME()),
@@ -71,7 +72,8 @@ BEGIN TRY
     CREATE TABLE dbo.Studies
     (
         StudyID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Studies PRIMARY KEY,
-        StudyTitle NVARCHAR(500) NOT NULL,
+        StudyName NVARCHAR(500) NOT NULL,
+        AAWording NVARCHAR(500) NULL,
         DiseaseAreaID INT NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_Studies_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_Studies_ModifiedOn DEFAULT (SYSUTCDATETIME()),
@@ -143,8 +145,7 @@ BEGIN TRY
         CONSTRAINT FK_PublicationAuthors_Publications FOREIGN KEY (PublicationID) REFERENCES dbo.Publications (PublicationID),
         CONSTRAINT FK_PublicationAuthors_Authors FOREIGN KEY (AuthorID) REFERENCES dbo.Authors (AuthorID),
         CONSTRAINT UQ_PublicationAuthors_AuthorOrder UNIQUE (PublicationID, AuthorOrder),
-        CONSTRAINT FK_PublicationAuthors_VerifiedByProjectManagers FOREIGN KEY (VerifiedByPMID) REFERENCES dbo.ProjectManagers (PMID),
-        CONSTRAINT FK_PublicationAuthors_PublicationLead FOREIGN KEY (PublicationLeadID) REFERENCES dbo.Authors (AuthorID)
+        CONSTRAINT FK_PublicationAuthors_VerifiedByProjectManagers FOREIGN KEY (VerifiedByPMID) REFERENCES dbo.ProjectManagers (PMID)
     );
     CREATE INDEX IX_PublicationAuthors_AuthorID ON dbo.PublicationAuthors (AuthorID);
     CREATE INDEX IX_PublicationAuthors_VerifiedByPMID ON dbo.PublicationAuthors (VerifiedByPMID);
@@ -264,7 +265,8 @@ BEGIN TRY
         CREATE VIEW dbo.vw_StudiesWithDiseaseArea
         AS
         SELECT [st].[StudyID]
-              ,[st].[StudyTitle]
+              ,[st].[StudyName]
+              ,[st].[AAWording]
               ,[st].[DiseaseAreaID]
               ,[da].[DiseaseAreaName]
               ,[st].[CreatedOn]
@@ -280,7 +282,8 @@ BEGIN TRY
         SELECT
             [pb].[PublicationID],
             [pb].[PublicationTitle],
-            [st].[StudyTitle],
+            [st].[StudyName],
+            [st].[AAWording],
             [da].[DiseaseAreaName],
             [pb].[Status],
             COUNT([pa].[AuthorID]) AS AuthorCount,
@@ -301,7 +304,8 @@ BEGIN TRY
         GROUP BY
             [pb].[PublicationID],
             [pb].[PublicationTitle],
-            [st].[StudyTitle],
+            [st].[StudyName],
+            [st].[AAWording],
             [da].[DiseaseAreaName],
             [pb].[Status],
             [pb].[FileName],
