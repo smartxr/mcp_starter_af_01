@@ -116,10 +116,7 @@ def get_author(author_name: str) -> str:
                 search_text=search_text,
                 query_type="full",
                 search_mode="any",
-                # search_fields=["first_name", "last_name"],
-                search_fields=["firstname", "lastname"],
-                # search_fields="firstname,lastname,email",
-                # select="authorid,firstname,lastname,title,email",
+                search_fields=["firstname","lastname","email"],
                 select=["authorid","firstname","lastname","title","email"],
                 top=10)
             authors = list(results)
@@ -249,10 +246,10 @@ def _return_tool_errors(tool_name, action="save"):
                 return f"Invalid {tool_name} request: {error}"
             except RuntimeError as error:
                 return f"Unable to process {tool_name} request: {error}"
-            except Exception:
+            except Exception as ex:
                 logging.exception("Failed to process %s request.", tool_name)
                 no_records_saved = "No records were saved; " if action == "save" else ""
-                return f"Unable to {action} {tool_name}: {no_records_saved}check the database schema and connection."
+                return f"Unable to {action} {tool_name}: {no_records_saved}check the database schema and connection. Error: {ex}"
         return wrapped
     return decorate
 
@@ -279,6 +276,34 @@ def _query_sql_json(query, *parameters):
 
 
 @app.mcp_tool()
+@_return_tool_errors("COI disclosure types", action="retrieve")
+def get_coi_disclosure_types() -> str:
+    """List all active COI disclosure types in display order."""
+    return _query_sql_json(
+        """
+        SELECT COIDisclosureTypeID, OrderNumber, ShortName, SummaryName, LongName
+        FROM dbo.COIDisclosureTypes
+        WHERE IsDeleted = 0
+        ORDER BY OrderNumber
+        """
+    )
+
+
+@app.mcp_tool()
+@_return_tool_errors("disease areas", action="retrieve")
+def get_disease_areas() -> str:
+    """List all nondeleted disease areas, ordered by name. No input parameters."""
+    return _query_sql_json(
+        """
+        SELECT *
+        FROM dbo.DiseaseAreas
+        WHERE IsDeleted = 0
+        ORDER BY DiseaseAreaName
+        """
+    )
+
+
+@app.mcp_tool()
 @_return_tool_errors("active publications", action="retrieve")
 def get_active_publications() -> str:
     """List active publications from dbo.vw_ActivePublications."""
@@ -289,6 +314,45 @@ def get_active_publications() -> str:
         ORDER BY ModifiedOn DESC
         """
     )
+
+
+@app.mcp_tool()
+@_return_tool_errors("COI document", action="retrieve")
+def get_coi_document(author_id: int, disease_area_id: int | None = None) -> str:
+    """Return the latest COI with its disclosures.
+
+    Filter by author_id and optionally disease_area_id. Return JSON null when no COI matches.
+    """
+    parsed_author_id = _parse_sql_id(author_id, "author_id")
+    parsed_disease_area_id = _parse_sql_id(disease_area_id, "disease_area_id", nullable=True)
+    rows = json.loads(_query_sql_json(
+        """
+        SELECT TOP (1) c.*,
+            (
+                SELECT d.*, t.OrderNumber, t.ShortName, t.SummaryName, t.LongName
+                FROM dbo.COIDisclosures AS d
+                LEFT JOIN dbo.COIDisclosureTypes AS t
+                    ON t.COIDisclosureTypeID = d.COIDisclosureTypeID
+                WHERE d.COIID = c.COIID AND d.IsDeleted = 0
+                ORDER BY t.OrderNumber, d.COIDisclosureID
+                FOR JSON PATH, INCLUDE_NULL_VALUES
+            ) AS disclosures
+        FROM dbo.COIs AS c
+        WHERE c.AuthorID = ?
+          AND (? IS NULL OR c.DiseaseAreaID = ?)
+          AND c.Status = N'Confirmed'
+          AND c.IsDeleted = 0
+        ORDER BY c.DocumentDate DESC, c.CreatedOn DESC, c.COIID DESC
+        """,
+        parsed_author_id,
+        parsed_disease_area_id,
+        parsed_disease_area_id,
+    ))
+    if not rows:
+        return json.dumps(None)
+    document = rows[0]
+    document["disclosures"] = json.loads(document["disclosures"])
+    return json.dumps(document)
 
 
 @app.mcp_tool()
@@ -364,9 +428,9 @@ def save_author_agreement(author_agreement_object: str) -> str:
 @app.mcp_tool()
 @_return_tool_errors("COI")
 def save_coi(coi_object: str) -> str:
-    """Save a COI and its entity/relationship disclosures from the agent instruction JSON format."""
+    """Save a COI with optional desease_area_id and each disclosure's LineStatus."""
     coi = _parse_json_object(coi_object, "coi_object")
-    manuscript_title = _required_text(coi.get("manuscript_title"), "manuscript_title", 500)
+    disease_area_id = _parse_sql_id(coi.get("desease_area_id"), "desease_area_id", nullable=True)
     manuscript_number = _optional_text(coi.get("manuscript_number"), "manuscript_number", 100)
     file_name = _required_text(coi.get("filename"), "filename", 260)
     author = _parse_document_author(coi)
@@ -379,9 +443,17 @@ def save_coi(coi_object: str) -> str:
         if not isinstance(disclosure, dict):
             raise ValueError(f"disclosures[{index}] must be an object.")
         validated_disclosures.append({
+            "disclosure_type_id": _parse_sql_id(
+                disclosure.get("DisclosureTypeID"),
+                f"disclosures[{index}].DisclosureTypeID",
+                nullable=True,
+            ),
             "entity": _required_text(disclosure.get("entity"), f"disclosures[{index}].entity"),
             "relationship": _required_text(
                 disclosure.get("relationship"), f"disclosures[{index}].relationship"
+            ),
+            "line_status": _optional_text(
+                disclosure.get("LineStatus"), f"disclosures[{index}].LineStatus", 10
             ),
         })
 
@@ -398,15 +470,14 @@ def save_coi(coi_object: str) -> str:
             """
             INSERT INTO dbo.COIs
                 (DiseaseAreaID, AuthorID, AuthorExtractedFirstName, AuthorExtractedLastName,
-                 ManuscriptTitle, ManuscriptNumber, FileName, Status)
+                  ManuscriptNumber, FileName, Status)
             OUTPUT INSERTED.COIID
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            None,
+            disease_area_id,
             author["author_id"],
             author["firstname"],
             author["lastname"],
-            manuscript_title,
             manuscript_number,
             file_name,
             "Pending PM Review"
@@ -415,12 +486,15 @@ def save_coi(coi_object: str) -> str:
         for disclosure in validated_disclosures:
             cursor.execute(
                 """
-                INSERT INTO dbo.COIDisclosures (COIID, EntityData, RelationshipData)
-                VALUES (?, ?, ?)
+                INSERT INTO dbo.COIDisclosures
+                    (COIID, COIDisclosureTypeID, EntityInfo, Details, LineStatus)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 coi_id,
+                disclosure["disclosure_type_id"],
                 disclosure["entity"],
                 disclosure["relationship"],
+                disclosure["line_status"],
             )
 
         connection.commit()

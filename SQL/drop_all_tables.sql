@@ -17,6 +17,9 @@ BEGIN TRY
     IF OBJECT_ID(N'dbo.vw_PublicationAuthorDocumentStatus', N'V') IS NOT NULL
         DROP VIEW dbo.vw_PublicationAuthorDocumentStatus;
 
+    IF OBJECT_ID(N'dbo.vw_COIDisclosuresWithTypes', N'V') IS NOT NULL
+        DROP VIEW dbo.vw_COIDisclosuresWithTypes;
+
     IF OBJECT_ID(N'dbo.PublicationAuthors', N'U') IS NOT NULL
         DROP TABLE dbo.PublicationAuthors;
 
@@ -25,6 +28,9 @@ BEGIN TRY
 
     IF OBJECT_ID(N'dbo.COIDisclosures', N'U') IS NOT NULL
         DROP TABLE dbo.COIDisclosures;
+
+    IF OBJECT_ID(N'dbo.COIDisclosureTypes', N'U') IS NOT NULL
+        DROP TABLE dbo.COIDisclosureTypes;
 
     IF OBJECT_ID(N'dbo.COIs', N'U') IS NOT NULL
         DROP TABLE dbo.COIs;

@@ -28,11 +28,12 @@ BEGIN TRY
         OR OBJECT_ID(N'dbo.AuthorAgreements', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.COIs', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.COIDisclosures', N'U') IS NOT NULL
-        OR OBJECT_ID(N'dbo.DiseaseArea', N'U') IS NOT NULL
-        OR OBJECT_ID(N'dbo.ProjectManager', N'U') IS NOT NULL
-        OR OBJECT_ID(N'dbo.Study', N'U') IS NOT NULL
-        OR OBJECT_ID(N'dbo.Author', N'U') IS NOT NULL
-        OR OBJECT_ID(N'dbo.Publication', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.COIDisclosureTypes', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.DiseaseAreas', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.ProjectManagers', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.Studies', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.Authors', N'U') IS NOT NULL
+        OR OBJECT_ID(N'dbo.Publications', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.ACF', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.ACF_Author', N'U') IS NOT NULL
         OR OBJECT_ID(N'dbo.Publications_Author', N'U') IS NOT NULL
@@ -61,6 +62,7 @@ BEGIN TRY
     (
         DiseaseAreaID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DiseaseAreas PRIMARY KEY,
         DiseaseAreaName NVARCHAR(200) NOT NULL,
+        DiseaseAreaLongName NVARCHAR(200) NULL,
         PMID INT NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_DiseaseAreas_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_DiseaseAreas_ModifiedOn DEFAULT (SYSUTCDATETIME()),
@@ -164,6 +166,7 @@ BEGIN TRY
         PublicationLeadEntraID UNIQUEIDENTIFIER NULL,
         PublicationLeadEmail NVARCHAR(320) NULL,
         PublicationLeadName NVARCHAR(100) NULL,
+        EnvelopeID UNIQUEIDENTIFIER NULL,
         DocumentDate DATE NULL,
         FileName NVARCHAR(260) NULL,
         DocumentURL NVARCHAR(2000) NULL,
@@ -187,13 +190,13 @@ BEGIN TRY
         AuthorID INT NULL,
         AuthorExtractedFirstName NVARCHAR(100) NULL,
         AuthorExtractedLastName NVARCHAR(100) NULL,
-        ManuscriptTitle NVARCHAR(500) NOT NULL,
         ManuscriptNumber NVARCHAR(100) NULL,
         FileName NVARCHAR(260) NOT NULL,
         Status NVARCHAR(30) NOT NULL CONSTRAINT DF_COIs_Status DEFAULT (N'Draft'),
         DocumentDate DATE NULL,
         DraftURL NVARCHAR(2000) NULL,
         DocumentURL NVARCHAR(2000) NULL,
+        EmailURL NVARCHAR(2000) NULL,
         ProcessingInfo NVARCHAR(MAX) NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIs_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIs_ModifiedOn DEFAULT (SYSUTCDATETIME()),
@@ -202,18 +205,35 @@ BEGIN TRY
         CONSTRAINT FK_COIs_Authors FOREIGN KEY (AuthorID) REFERENCES dbo.Authors (AuthorID)
     );
 
+    CREATE TABLE dbo.COIDisclosureTypes
+    (
+        COIDisclosureTypeID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_COIDisclosureTypes PRIMARY KEY,
+        OrderNumber INT NOT NULL,
+        ShortName NVARCHAR(200) NOT NULL,
+        SummaryName NVARCHAR(200) NOT NULL,
+        LongName NVARCHAR(500) NOT NULL,
+        CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosureTypes_CreatedOn DEFAULT (SYSUTCDATETIME()),
+        ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosureTypes_ModifiedOn DEFAULT (SYSUTCDATETIME()),
+        IsDeleted BIT NOT NULL CONSTRAINT DF_COIDisclosureTypes_IsDeleted DEFAULT (0),
+        CONSTRAINT UQ_COIDisclosureTypes_OrderNumber UNIQUE (OrderNumber)
+    );
+
     CREATE TABLE dbo.COIDisclosures
     (
         COIDisclosureID INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_COIDisclosures PRIMARY KEY,
         COIID INT NOT NULL,
-        EntityData NVARCHAR(MAX) NOT NULL,
-        RelationshipData NVARCHAR(MAX) NOT NULL,
+        COIDisclosureTypeID INT NULL,
+        EntityInfo NVARCHAR(MAX) NOT NULL,
+        Details NVARCHAR(MAX) NOT NULL,
+        LineStatus NVARCHAR(10) NULL,
         CreatedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosures_CreatedOn DEFAULT (SYSUTCDATETIME()),
         ModifiedOn DATETIME2(7) NOT NULL CONSTRAINT DF_COIDisclosures_ModifiedOn DEFAULT (SYSUTCDATETIME()),
         IsDeleted BIT NOT NULL CONSTRAINT DF_COIDisclosures_IsDeleted DEFAULT (0),
-        CONSTRAINT FK_COIDisclosures_COIs FOREIGN KEY (COIID) REFERENCES dbo.COIs (COIID)
+        CONSTRAINT FK_COIDisclosures_COIs FOREIGN KEY (COIID) REFERENCES dbo.COIs (COIID),
+        CONSTRAINT FK_COIDisclosures_CoidisclosureTypes FOREIGN KEY (COIDisclosureTypeID) REFERENCES dbo.COIDisclosureTypes (COIDisclosureTypeID)
     );
     CREATE INDEX IX_COIDisclosures_COIID ON dbo.COIDisclosures (COIID);
+    CREATE INDEX IX_COIDisclosures_COIDisclosureTypeID ON dbo.COIDisclosures (COIDisclosureTypeID);
 
     DECLARE @TimestampTables TABLE
     (
@@ -230,6 +250,7 @@ BEGIN TRY
         (N'PublicationAuthors', N'PublicationID', N'AuthorID'),
         (N'AuthorAgreements', N'AAID', NULL),
         (N'COIs', N'COIID', NULL),
+        (N'COIDisclosureTypes', N'COIDisclosureTypeID', NULL),
         (N'COIDisclosures', N'COIDisclosureID', NULL);
 
     DECLARE @TableName SYSNAME;
@@ -385,6 +406,26 @@ BEGIN TRY
             WHERE c.AuthorID = a.AuthorID
             ORDER BY c.DocumentDate DESC
         ) AS coi_latest;';
+
+    EXEC sys.sp_executesql N'
+        CREATE VIEW dbo.vw_COIDisclosuresWithTypes
+        AS
+        SELECT
+            [d].[COIDisclosureID],
+            [d].[COIID],
+            [d].[COIDisclosureTypeID],
+            [t].[OrderNumber],
+            [t].[ShortName] AS [TypeShort],
+            [t].[SummaryName],
+            [t].[LongName] AS [TypeLong],
+            [d].[EntityInfo],
+            [d].[Details],
+            [d].[CreatedOn],
+            [d].[ModifiedOn],
+            [d].[IsDeleted]
+        FROM [dbo].[COIDisclosures] AS [d]
+        LEFT JOIN [dbo].[COIDisclosureTypes] AS [t]
+            ON [d].[COIDisclosureTypeID] = [t].[COIDisclosureTypeID];';
 
     COMMIT TRANSACTION;
 END TRY

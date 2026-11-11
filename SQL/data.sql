@@ -1,10 +1,11 @@
 /*
 Azure SQL Database import from Data base.xlsx. Run schema.sql first.
 All workbook values are embedded below; no Excel driver or external storage is needed.
-Expected source rows: 10 disease areas, 3 project managers, 2225 authors.
+Expected source rows: 10 disease areas, 3 project managers, 2225 authors, and 13
+COI disclosure types.
 Studies includes the manually specified SCD-006 row and rows transcribed from the
-provided study list; the other four model tables have no source sheets and are
-intentionally not populated.
+provided study list. Disclosure types are seeded from the list below; other model
+tables without source data are intentionally not populated.
 
 Mapping:
 - Disease Area: nonblank A3 onwards -> DiseaseAreaName.
@@ -31,7 +32,8 @@ BEGIN TRY
 
     CREATE TABLE #DiseaseAreasSource
     (
-        DiseaseAreaName NVARCHAR(200) NOT NULL PRIMARY KEY
+        DiseaseAreaName NVARCHAR(200) NOT NULL PRIMARY KEY,
+        DiseaseAreaLongName NVARCHAR(200) NULL
     );
     CREATE TABLE #ProjectManagersSource
     (
@@ -54,18 +56,25 @@ BEGIN TRY
         AuthorType NVARCHAR(20) NULL,
         CHECK (AuthorType IN (N'Internal', N'External'))
     );
+    CREATE TABLE #COIDisclosureTypesSource
+    (
+        OrderNumber INT NOT NULL PRIMARY KEY,
+        ShortName NVARCHAR(200) NOT NULL,
+        SummaryName NVARCHAR(200) NOT NULL,
+        LongName NVARCHAR(500) NOT NULL
+    );
 
-    INSERT INTO #DiseaseAreasSource (DiseaseAreaName) VALUES
-        (N'AATD'),
-        (N'ADPKD'),
-        (N'AMKD'),
-        (N'CF'),
-        (N'DM1'),
-        (N'Heme'),
-        (N'Pain'),
-        (N'POVE'),
-        (N'T1D'),
-        (N'Rare Endocrine');
+    INSERT INTO #DiseaseAreasSource (DiseaseAreaName, DiseaseAreaLongName) VALUES
+        (N'AATD', NULL),
+        (N'ADPKD', NULL),
+        (N'AMKD', NULL),
+        (N'CF', N'Cystic Fibrosis'),
+        (N'DM1', NULL),
+        (N'Heme', NULL),
+        (N'Pain', NULL),
+        (N'POVE', N'Povetacicept'),
+        (N'T1D', NULL),
+        (N'Rare Endocrine', NULL);
 
     INSERT INTO #ProjectManagersSource (FirstName, LastName, Email) VALUES
         (N'Amy', N'Godfrey', N'amy_godfrey@vrtx.com'),
@@ -85,6 +94,21 @@ BEGIN TRY
         (N'445-110', 4),
         (N'DM1 publications', 5),
         (N'880-101', 10);
+
+    INSERT INTO #COIDisclosureTypesSource (OrderNumber, ShortName, SummaryName, LongName) VALUES
+        (1, N'Manuscript Support', N'Manuscript Support', N'All support for the present manuscript (e.g., funding, provision of study materials, medical writing, article processing charges, etc.)'),
+        (2, N'Grants / Contracts', N'Grants Contracts', N'Grants or contracts from any entity (if not indicated in item #1 above).'),
+        (3, N'Royalties / Licenses', N'Royalties Licenses', N'Royalties or licenses'),
+        (4, N'Consulting Fees', N'Consulting Fees', N'Consulting fees'),
+        (5, N'Lectures / Educational Events', N'Lectures Educational Events', N'Payment or honoraria for lectures, presentations, speakers bureaus, manuscript writing or educational events'),
+        (6, N'Expert Testimony', N'Expert Testimony', N'Payment for expert testimony'),
+        (7, N'Meetings / Travel Support', N'Meetings Travel Support', N'Support for attending meetings and/or travel'),
+        (8, N'Patents', N'Patents', N'Patents planned, issued or pending'),
+        (9, N'DSMB / Advisory Board', N'DSMB Advisory Board', N'Participation on a Data Safety Monitoring Board or Advisory Board'),
+        (10, N'Leadership / Fiduciary Roles', N'Leadership Fiduciary Roles', N'Leadership or fiduciary role in other board, society, committee or advocacy group, paid or unpaid'),
+        (11, N'Stock / Stock Options', N'Stock Stock Options', N'Stock or stock options'),
+        (12, N'Equipment / Materials / Services', N'Equipment Materials Services', N'Receipt of equipment, materials, drugs, medical writing, gifts or other services'),
+        (13, N'Other Interests', N'Other Interests', N'Other financial or non-financial interests');
 
     INSERT INTO #AuthorsSource (SourceRow, FirstName, LastName, Email, AuthorType) VALUES
         (2, N'Antti', N'Aalto', N'Antti.Aalto@oriola.com', N'External'),
@@ -2324,7 +2348,8 @@ BEGIN TRY
     IF (SELECT COUNT(*) FROM #DiseaseAreasSource) <> 10
         OR (SELECT COUNT(*) FROM #ProjectManagersSource) <> 3
         OR (SELECT COUNT(*) FROM #AuthorsSource) <> 2225
-        THROW 50002, 'Embedded source row counts do not match the workbook.', 1;
+        OR (SELECT COUNT(*) FROM #COIDisclosureTypesSource) <> 13
+        THROW 50002, 'Embedded source row counts do not match expected values.', 1;
 
     IF (SELECT COUNT(*) FROM #AuthorsSource WHERE AuthorType IS NULL) <> 299
         THROW 50003, 'Expected 299 unclassified authors from the workbook.', 1;
@@ -2343,10 +2368,19 @@ BEGIN TRY
         THROW 50004, 'Duplicate author natural keys in source; review before importing.', 1;
 
         DECLARE @DiseaseAreasInserted INT, @StudiesSourceRows INT, @StudiesInserted INT,
-            @ProjectManagersInserted INT, @AuthorsInserted INT;
+            @ProjectManagersInserted INT, @AuthorsInserted INT, @COIDisclosureTypesInserted INT;
 
-    INSERT INTO dbo.DiseaseAreas (DiseaseAreaName)
-    SELECT source.DiseaseAreaName
+    UPDATE target
+    SET DiseaseAreaLongName = source.DiseaseAreaLongName
+    FROM dbo.DiseaseAreas AS target
+    INNER JOIN #DiseaseAreasSource AS source
+        ON target.DiseaseAreaName = source.DiseaseAreaName
+    WHERE source.DiseaseAreaLongName IS NOT NULL
+      AND (target.DiseaseAreaLongName IS NULL
+           OR target.DiseaseAreaLongName <> source.DiseaseAreaLongName);
+
+    INSERT INTO dbo.DiseaseAreas (DiseaseAreaName, DiseaseAreaLongName)
+    SELECT source.DiseaseAreaName, source.DiseaseAreaLongName
     FROM #DiseaseAreasSource AS source
     WHERE NOT EXISTS
     (
@@ -2393,7 +2427,32 @@ BEGIN TRY
     SET Validated = 1
     WHERE Validated <> 1;
 
+    UPDATE target
+    SET OrderNumber = -1000000 - source.OrderNumber
+    FROM dbo.COIDisclosureTypes AS target
+    INNER JOIN #COIDisclosureTypesSource AS source
+        ON source.LongName = target.LongName;
+
+    UPDATE target
+    SET OrderNumber = source.OrderNumber,
+        ShortName = source.ShortName,
+        SummaryName = source.SummaryName
+    FROM dbo.COIDisclosureTypes AS target
+    INNER JOIN #COIDisclosureTypesSource AS source
+        ON source.LongName = target.LongName;
+
+    INSERT INTO dbo.COIDisclosureTypes (OrderNumber, ShortName, SummaryName, LongName)
+    SELECT source.OrderNumber, source.ShortName, source.SummaryName, source.LongName
+    FROM #COIDisclosureTypesSource AS source
+    WHERE NOT EXISTS
+    (
+        SELECT 1 FROM dbo.COIDisclosureTypes AS target WITH (UPDLOCK, HOLDLOCK)
+        WHERE target.LongName = source.LongName
+    );
+    SET @COIDisclosureTypesInserted = @@ROWCOUNT;
+
     DROP TABLE #AuthorsSource;
+    DROP TABLE #COIDisclosureTypesSource;
     DROP TABLE #StudiesSource;
     DROP TABLE #ProjectManagersSource;
     DROP TABLE #DiseaseAreasSource;
@@ -2403,11 +2462,13 @@ BEGIN TRY
     SELECT N'DiseaseAreas' AS TableName, 10 AS SourceRows, @DiseaseAreasInserted AS InsertedRows
     UNION ALL SELECT N'Studies', 12, @StudiesInserted
     UNION ALL SELECT N'ProjectManagers', 3, @ProjectManagersInserted
-    UNION ALL SELECT N'Authors', 2225, @AuthorsInserted;
+    UNION ALL SELECT N'Authors', 2225, @AuthorsInserted
+    UNION ALL SELECT N'COIDisclosureTypes', 13, @COIDisclosureTypesInserted;
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
     DROP TABLE IF EXISTS #AuthorsSource;
+    DROP TABLE IF EXISTS #COIDisclosureTypesSource;
     DROP TABLE IF EXISTS #StudiesSource;
     DROP TABLE IF EXISTS #ProjectManagersSource;
     DROP TABLE IF EXISTS #DiseaseAreasSource;
