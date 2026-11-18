@@ -178,9 +178,6 @@ BEGIN TRY
         CONSTRAINT FK_AuthorAgreements_Authors FOREIGN KEY (AuthorID) REFERENCES dbo.Authors (AuthorID),
         CONSTRAINT FK_AuthorAgreements_PublicationLead FOREIGN KEY (PublicationLeadID) REFERENCES dbo.Authors (AuthorID)
     );
-    CREATE UNIQUE INDEX UX_AuthorAgreements_Study_Author
-        ON dbo.AuthorAgreements (StudyID, AuthorID)
-        WHERE StudyID IS NOT NULL AND AuthorID IS NOT NULL;
     CREATE INDEX IX_AuthorAgreements_PublicationLead ON dbo.AuthorAgreements (PublicationLeadID);
 
     CREATE TABLE dbo.COIs
