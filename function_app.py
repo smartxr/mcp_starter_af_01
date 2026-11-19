@@ -372,6 +372,68 @@ def get_publication_authors(publication_id: int) -> str:
 
 
 @app.mcp_tool()
+@_return_tool_errors("affiliation byline", action="create")
+def create_affiliation_byline(PublicationID: int) -> str:
+    """Create an ordered author byline and deduplicated affiliation list.
+
+    PublicationID is required. Affiliations include CityState and Country when
+    available. Authors missing Affiliation cause an error rather than a partial byline.
+    """
+    publication_id = _parse_sql_id(PublicationID, "PublicationID")
+    rows = json.loads(_query_sql_json(
+        """
+        SELECT a.AuthorID, a.FirstName, a.LastName,
+               a.Affiliation, a.CityState, a.Country
+        FROM dbo.Publications AS p
+        LEFT JOIN dbo.PublicationAuthors AS pa
+            ON pa.PublicationID = p.PublicationID AND pa.IsDeleted = 0
+        LEFT JOIN dbo.Authors AS a
+            ON a.AuthorID = pa.AuthorID AND a.IsDeleted = 0
+        WHERE p.PublicationID = ? AND p.IsDeleted = 0
+        ORDER BY pa.AuthorOrder
+        """,
+        publication_id,
+    ))
+    if not rows:
+        raise ValueError(f"Publication {publication_id} was not found.")
+    authors = [row for row in rows if row["AuthorID"] is not None]
+    if not authors:
+        raise ValueError(f"Publication {publication_id} has no nondeleted authors.")
+
+    missing_affiliations = [
+        f'{author["FirstName"]} {author["LastName"]}'
+        for author in authors
+        if not author["Affiliation"] or not author["Affiliation"].strip()
+    ]
+    if missing_affiliations:
+        raise ValueError(
+            "Missing affiliation for: " + ", ".join(missing_affiliations) + "."
+        )
+
+    superscript_digits = str.maketrans(
+        "0123456789", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079"
+    )
+    affiliation_indices: dict[str, int] = {}
+    author_byline: list[str] = []
+    for author in authors:
+        affiliation = ", ".join(
+            author[field].strip()
+            for field in ("Affiliation", "CityState", "Country")
+            if author[field] and author[field].strip()
+        )
+        if affiliation not in affiliation_indices:
+            affiliation_indices[affiliation] = len(affiliation_indices) + 1
+        reference = str(affiliation_indices[affiliation]).translate(superscript_digits)
+        author_byline.append(f'{author["FirstName"]} {author["LastName"]}{reference}')
+
+    affiliation_byline = [
+        f"{str(index).translate(superscript_digits)} {affiliation}"
+        for affiliation, index in affiliation_indices.items()
+    ]
+    return ", ".join(author_byline) + "\n\n" + "\n".join(affiliation_byline)
+
+
+@app.mcp_tool()
 @_return_tool_errors("author agreement")
 def save_author_agreement(author_agreement_object: str) -> str:
     """Save an author agreement in JSON format."""
